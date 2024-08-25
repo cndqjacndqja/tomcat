@@ -54,3 +54,39 @@ server.tomcat.threads.max=200
 - threads.max는 스레드 풀의 개수이다.
 
 > 그럼 정리를 하자면,, max-connections로 지정된 channel의 개수만큼 소켓 요청을 listen할 수 있는 것이고, 이것보다 한번에 많은 요청 들어오면 accept-count만큼의 사이즈인 큐에 넣어놓는 것이고, 이렇게 요청을 listen했으면 스레드풀로 위임하는데 그 스레드풀 사이즈를 지정하는 것이 threads.max이다!
+
+### NIOEndpoint에 대해 알아보자.
+- Poller
+    - Poller가 실제로 Selector를 가지고 있으며, 이를 통해 I/O 이벤트를 관리한다.
+    - NIOEndpoint는 하나 이상의 Poller를 가질 수 있으며, 각 Poller는 하나의 Selector를 가진다.
+    - NIO는 일반적으로 여러 개의 Poller를 사용한다. 이는 멀티 코어 시스템에서 성능을 향상시키기 위함이다.
+- Accepter
+- Selector
+    - Poller 내부의 run() 메서드에서 Selector를 사용해서 I/O 이벤트를 처리한다.
+
+> 기본적으로 tomcat에서 poller의 개수는 2개이고, 1000개의 max-connections를 설정했다면 1000개의 channel을 2개의 poller가 나눠서 처리한다는 것이다.
+
+### NioEndpoint에서 Poller가 이벤트 수신하는 딱 그 부분은 어디에 있을까?
+```java
+
+PollSelectorImpl.class -> doSelect(Consumer<SelectionKey> action, long timeout) 메서드
+
+
+do {
+    long startTime = timedPoll ? System.nanoTime() : 0;
+    numPolled = poll(pollArray.address(), pollArraySize, to);
+    if (numPolled == IOStatus.INTERRUPTED && timedPoll) {
+    // timed poll interrupted so need to adjust timeout
+    long adjust = System.nanoTime() - startTime;
+    to -= TimeUnit.MILLISECONDS.convert(adjust, TimeUnit.NANOSECONDS);
+    if (to <= 0) {
+    // timeout expired so no retry
+    numPolled = 0;
+    }
+  }
+} while (numPolled == IOStatus.INTERRUPTED);
+
+```
+
+위 부분에서 계쏙 while문 돌면서 반환하지 않고 있다가, INTERRUPTED 상태가 되어 이벤트를 수신했다는 것을 감지하면 return한다.
+(왜 근데 이벤트 루프라던지 이벤트 수신한다는 표현을 굳이 어렵게 쓰는걸까? 결국 내부 구현은 while문 돌다가 반환하거나 재귀도는 것들이 대부분인데, 이러한 표현들이 괜히 더 어렵게 만드는 것 같다,,..)
