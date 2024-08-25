@@ -41,3 +41,16 @@ Spring boot는 1.0 버전부터 NIO를 지원하고 있었고, 2.0부터 NIO가 
 > 하지만 NIO는 channel이라는 객체로 일단 300개 요청을 다 받아놓고, 스레드 풀로 위임하여 200개의 스레드풀로 동시에 처리하고 100개는 큐에 넣어놓는다.
 > 그럼 결국 IO(ex. JIoEndpoint)랑 NIO(ex. NioEndpoint)의 차이점은 요청을 수신하는 쪽에 있다. IO는 요청이 오면 스레드풀로 위임하기 전까지 요청 수신을 못하는 반면, NIO는 이부분은 channel이라는 객체와 selector라는 객체를 사용함으로써
 > 하나의 스레드에서 여러개의 수신해서 스레드 풀로 위임할 수 있다는 차이가 핵심이다.
+
+### 그럼 여기서 스프링과 연관지어 생각해보자.
+server.tomcat.max-connections=10000
+server.tomcat.accept-count=100
+server.tomcat.threads.max=200
+기존에 위와 같은 설정값들을 대충 이해하고 설정했었다.
+그럼 이제 이 설정값들이 어떤 의미인지 알 수 있을 것이다.
+
+- max-connections: 최대 연결 수인데, 이게 코드단에서는 channel객체의 개수이다. 요청올 떄 딱 수신하는 그 부분의 객체 개수를 지정하는 것이고, 이 개수만큼 한번에 요청을 listen할 수 있다.
+- accept-count는 큐의 개수이다. channel의 개수보다 한번에 더 많은 요청이 올 경우 이 큐에 넣어놓는데, 이것의 개수를 지정하는 것이다.
+- threads.max는 스레드 풀의 개수이다.
+
+> 그럼 정리를 하자면,, max-connections로 지정된 channel의 개수만큼 소켓 요청을 listen할 수 있는 것이고, 이것보다 한번에 많은 요청 들어오면 accept-count만큼의 사이즈인 큐에 넣어놓는 것이고, 이렇게 요청을 listen했으면 스레드풀로 위임하는데 그 스레드풀 사이즈를 지정하는 것이 threads.max이다!
