@@ -1,79 +1,27 @@
-## Welcome to Apache Tomcat!
+NIO, IO 내부 코드가 어떻게 동작했고 발전해왔는지 알아보자.
 
-### What Is It?
+JIOEndpoint는 7.0 버전까지 사용되다가 그 이후부터 Deprecated 되었다. 그 이유는 NIO를 사용하는 방향으로 바뀌었기 때문이다.
+Spring boot는 1.0 버전부터 NIO를 지원하고 있었고, 2.0부터 NIO가 기본 설정이 되었다.
 
-The Apache Tomcat® software is an open source implementation of the Java
-Servlet, JavaServer Pages, Java Expression Language and Java WebSocket
-technologies. The Java Servlet, JavaServer Pages, Java Expression Language and
-Java WebSocket specifications are developed under the
-[Java Community Process](https://jcp.org/en/introduction/overview).
+### IO 처리 과정의 한계와 문제점은?
+처음 내 생각: Acceptor 스레드가 블로킹되어 있어서, 새로운 연결을 받지 못하는 문제가 발생할 수 있다.
+-> 그러나 아니라고 한다. Acceptor 스레드는 새로운 연결을 받는 역할만 하고 바로 ThreadPool에 토스해버리기 때문에, 이 부분에서 병목이 일어날 경우는 매우 드물다고 한다.
 
-The Apache Tomcat software is developed in an open and participatory
-environment and released under the
-[Apache License version 2](https://www.apache.org/licenses/). The Apache Tomcat
-project is intended to be a collaboration of the best-of-breed developers from
-around the world. We invite you to participate in this open development
-project. To learn more about getting involved,
-[click here](https://tomcat.apache.org/getinvolved.html) or keep reading.
+실제 문제가 되는 부분: ThreadPool에서 처리하는 부분에서 발생한다.
+- ThreadPool의 동작
+    - ThreadPool은 미리 정의된 수의 스레드를 생성합니다(예: 최소 10개, 최대 200개).
+    - 모든 스레드가 사용 중일 때 새로운 연결이 들어오면:
+    - a) 새 스레드를 생성합니다(최대 한도까지).
+    - b) 또는 요청을 큐에 넣고 대기시킵니다.
+- 여기서 문제점
+    - 동시 연결 수가 ThreadPool의 최대 스레드 수를 초과하면:
+      a) 새 연결은 큐에서 대기하게 되어 응답 시간이 길어집니다.
+      b) 메모리 사용량이 증가합니다(각 스레드는 메모리를 소비).
+- 구체적인 시나리오:
+    - ThreadPool 최대 크기: 200
+    - 동시 연결 수: 1000
+    - 결과: 200개의 연결은 즉시 처리됩니다. 나머지 800개는 큐에서 대기하거나 연결이 거부될 수 있습니다.
 
-Apache Tomcat software powers numerous large-scale, mission-critical web
-applications across a diverse range of industries and organizations. Some of
-these users and their stories are listed on the
-[PoweredBy wiki page](https://cwiki.apache.org/confluence/display/TOMCAT/PoweredBy).
-
-Apache Tomcat, Tomcat, Apache, the Apache feather, and the Apache Tomcat
-project logo are trademarks of the Apache Software Foundation.
-
-### Get It
-
-For every major Tomcat version there is one download page containing
-links to the latest binary and source code downloads, but also
-links for browsing the download directories and archives:
-- [Tomcat 11](https://tomcat.apache.org/download-11.cgi)
-- [Tomcat 10](https://tomcat.apache.org/download-10.cgi)
-- [Tomcat 9](https://tomcat.apache.org/download-90.cgi)
-
-To facilitate choosing the right major Tomcat version one, we have provided a
-[version overview page](https://tomcat.apache.org/whichversion.html).
-
-### Documentation
-
-The documentation available as of the date of this release is
-included in the docs webapp which ships with tomcat. You can access that webapp
-by starting tomcat and visiting <http://localhost:8080/docs/> in your browser.
-The most up-to-date documentation for each version can be found at:
-- [Tomcat 11](https://tomcat.apache.org/tomcat-11.0-doc/)
-- [Tomcat 10](https://tomcat.apache.org/tomcat-10.1-doc/)
-- [Tomcat 9](https://tomcat.apache.org/tomcat-9.0-doc/)
-
-### Installation
-
-Please see [RUNNING.txt](RUNNING.txt) for more info.
-
-### Licensing
-
-Please see [LICENSE](LICENSE) for more info.
-
-### Support and Mailing List Information
-
-* Free community support is available through the
-[tomcat-users](https://tomcat.apache.org/lists.html#tomcat-users) email list and
-a dedicated [IRC channel](https://tomcat.apache.org/irc.html) (#tomcat on
-Freenode).
-
-* If you want freely available support for running Apache Tomcat, please see the
-resources page [here](https://tomcat.apache.org/findhelp.html).
-
-* If you want to be informed about new code releases, bug fixes,
-security fixes, general news and information about Apache Tomcat, please
-subscribe to the
-[tomcat-announce](https://tomcat.apache.org/lists.html#tomcat-announce) email
-list.
-
-* If you have a concrete bug report for Apache Tomcat, please see the
-instructions for reporting a bug
-[here](https://tomcat.apache.org/bugreport.html).
-
-### Contributing
-
-Please see [CONTRIBUTING](CONTRIBUTING.md) for more info.
+요약: 결국 IO 방식은 스레드 풀을 만들어 놓고, 요청당 하나의 스레드를 사용하는 것인데
+예를 들어 스레드풀에 200개 넣어놓으면, 요청이 올 때 마다 이 중 하나를 사용할텐데 요청이 한번에 300개가 오면 한번에 고갈이 되어버리기 때문에 한계가 있었다.
+그리고 요청당 하나의 스레드를 사용ㅎ는건 스레드 간의 컨텍스트 스위칭으로 인한 오버헤드가 발생하여 성능 저하를 일으킬 수 있다고 한다.
